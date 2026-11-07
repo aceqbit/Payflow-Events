@@ -1,0 +1,16 @@
+# Produces the broker metric names in plan section 5.
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+rules:
+  - pattern: 'kafka.server<type=ReplicaManager, name=IsrShrinksPerSec><>Count'
+    name: kafka_server_replicamanager_isrshrinks_total
+    type: COUNTER
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=(BytesIn|BytesOut)PerSec><>Count'
+    name: kafka_server_brokertopicmetrics_$1_total
+    type: COUNTER
+  - pattern: 'kafka.server<type=KafkaRequestHandlerPool, name=RequestHandlerAvgIdlePercent><>OneMinuteRate'
+    name: kafka_server_kafkarequesthandlerpool_requesthandleravgidlepercent
+    type: GAUGE
+  - pattern: 'kafka.(server|controller)<type=(ReplicaManager|KafkaController), name=(UnderReplicatedPartitions|OfflinePartitionsCount)><>Value'
+    name: kafka_$1_$2_$3
+    type: GAUGE

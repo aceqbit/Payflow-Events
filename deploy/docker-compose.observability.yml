@@ -1,1 +1,69 @@
-services: {}
+x-jmx: &jmx
+  volumes:
+    - jmx-agent:/jmx:ro
+    - ./observability/jmx/kafka.yml:/jmx/kafka.yml:ro
+  environment:
+    KAFKA_OPTS: "-javaagent:/jmx/agent.jar=7071:/jmx/kafka.yml"
+  depends_on:
+    jmx-agent-init: {condition: service_completed_successfully}
+
+services:
+  jmx-agent-init:
+    image: curlimages/curl:8.11.1
+    user: root
+    command: ["sh", "-c", "curl -fsSL -o /jmx/agent.jar https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/1.1.0/jmx_prometheus_javaagent-1.1.0.jar"]
+    volumes: ["jmx-agent:/jmx"]
+    restart: "no"
+  kafka-1: {<<: *jmx}
+  kafka-2: {<<: *jmx}
+  kafka-3: {<<: *jmx}
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    container_name: otel-collector
+    command: ["--config=/etc/otel.yaml"]
+    user: "0:0"
+    environment:
+      TAIL_SAMPLE_PCT: ${TAIL_SAMPLE_PCT:-2}
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otel.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports: ["4317:4317", "4318:4318"]
+    depends_on: [prometheus, tempo, loki]
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-otlp-receiver
+      - --enable-feature=exemplar-storage
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+    ports: ["9090:9090"]
+  tempo:
+    image: grafana/tempo:2.7.1
+    container_name: tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes: ["./observability/tempo/tempo.yaml:/etc/tempo.yaml:ro"]
+    ports: ["3200:3200"]
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    command: ["-config.file=/etc/loki.yaml"]
+    volumes: ["./observability/loki/loki.yaml:/etc/loki.yaml:ro"]
+  grafana:
+    image: grafana/grafana:12.0.0
+    container_name: grafana
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus, tempo, loki]
+
+volumes:
+  jmx-agent:

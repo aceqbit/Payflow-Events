@@ -1,0 +1,94 @@
+receivers:
+  otlp:
+    protocols:
+      grpc: {endpoint: 0.0.0.0:4317}
+      http: {endpoint: 0.0.0.0:4318}
+  kafkametrics:
+    brokers: [kafka-1:9092, kafka-2:9092, kafka-3:9092]
+    protocol_version: 2.8.0
+    collection_interval: 10s
+    scrapers: [brokers, topics, consumers]
+    metrics:
+      kafka.consumer_group.lag: {enabled: true}
+      kafka.partition.current_offset: {enabled: true}
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: kafka-jmx
+          scrape_interval: 10s
+          static_configs:
+            - targets: [kafka-1:7071, kafka-2:7071, kafka-3:7071, connect:7071]
+  postgresql:
+    endpoint: postgres:5432
+    username: payflow
+    password: payflow
+    databases: [payflow]
+    tls: {insecure: true}
+    collection_interval: 10s
+  sqlquery:
+    driver: postgres
+    datasource: "host=postgres port=5432 user=payflow password=payflow dbname=payflow sslmode=disable"
+    collection_interval: 5s
+    queries:
+      - sql: "select count(*)::bigint as n from outbox where published_at is null"
+        metrics:
+          - {metric_name: pg_outbox_backlog_rows, value_column: n, data_type: gauge, value_type: int}
+      - sql: "select coalesce(extract(epoch from now() - min(occurred_at)), 0)::float8 as age from outbox where published_at is null"
+        metrics:
+          - {metric_name: pg_outbox_oldest_unpublished_seconds, value_column: age, data_type: gauge, value_type: double}
+      - sql: "select slot_name as slot, pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn)::bigint as lag from pg_replication_slots where confirmed_flush_lsn is not null"
+        metrics:
+          - {metric_name: pg_replication_slot_lag_bytes, value_column: lag, attribute_columns: [slot], data_type: gauge, value_type: int}
+      - sql: "select pg_total_relation_size('processed_events')::bigint as b"
+        metrics:
+          - {metric_name: pg_processed_events_bytes, value_column: b, data_type: gauge, value_type: int}
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: 10s
+    metrics:
+      container.cpu.utilization: {enabled: true}
+
+processors:
+  memory_limiter: {check_interval: 1s, limit_mib: 512}
+  resource:
+    attributes:
+      - {key: deployment.environment, value: local, action: upsert}
+  transform/container:
+    metric_statements:
+      - context: resource
+        statements:
+          - set(attributes["container"], attributes["container.name"]) where attributes["container.name"] != nil
+  batch: {}
+  tail_sampling:
+    decision_wait: 10s
+    policies:
+      - {name: errors, type: status_code, status_code: {status_codes: [ERROR]}}
+      - {name: slow, type: latency, latency: {threshold_ms: 200}}
+      - {name: rest, type: probabilistic, probabilistic: {sampling_percentage: "${env:TAIL_SAMPLE_PCT:-2}"}}
+
+exporters:
+  otlphttp/prometheus:
+    endpoint: http://prometheus:9090/api/v1/otlp
+    tls: {insecure: true}
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls: {insecure: true}
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+
+service:
+  telemetry:
+    metrics: {address: "0.0.0.0:8888"}
+  pipelines:
+    metrics:
+      receivers: [otlp, kafkametrics, prometheus, postgresql, sqlquery, docker_stats]
+      processors: [memory_limiter, resource, transform/container, batch]
+      exporters: [otlphttp/prometheus]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [otlp/tempo]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki]
