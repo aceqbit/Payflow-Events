@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.0.0</version>
+    <relativePath/>
+  </parent>
+  <groupId>io.payflow</groupId>
+  <artifactId>payflow-events</artifactId>
+  <version>1.0.0</version>
+  <packaging>pom</packaging>
+
+  <modules>
+    <module>common</module>
+    <module>source-app</module>
+    <module>dual-write-app</module>
+    <module>relay-poller</module>
+    <module>consumer</module>
+    <module>rollup-streams</module>
+    <module>verifier</module>
+    <module>generator</module>
+  </modules>
+
+  <properties>
+    <java.version>25</java.version>
+    <kafka.version>4.1.0</kafka.version>
+    <testcontainers.version>1.21.3</testcontainers.version>
+    <awaitility.version>4.3.0</awaitility.version>
+    <jib.version>3.4.6</jib.version>
+    <jacoco.version>0.8.13</jacoco.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.payflow</groupId>
+        <artifactId>common</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers-bom</artifactId>
+        <version>${testcontainers.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.awaitility</groupId>
+        <artifactId>awaitility</artifactId>
+        <version>${awaitility.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>com.google.cloud.tools</groupId>
+          <artifactId>jib-maven-plugin</artifactId>
+          <version>${jib.version}</version>
+          <configuration>
+            <from><image>eclipse-temurin:25-jre</image></from>
+            <to><image>ghcr.io/aceqbit/payflow-${project.artifactId}:${project.version}</image></to>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>${jacoco.version}</version>
+          <executions>
+            <execution><goals><goal>prepare-agent</goal></goals></execution>
+            <execution><id>report</id><phase>verify</phase><goals><goal>report</goal></goals></execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
