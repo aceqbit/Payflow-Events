@@ -1,0 +1,22 @@
+spring:
+  config:
+    import: classpath:application-telemetry.yml
+  application:
+    name: relay-poller
+  datasource:
+    url: jdbc:postgresql://${PG_HOST:postgres}:5432/payflow
+    username: ${PG_USER:payflow}
+    password: ${PG_PASSWORD:payflow}
+    hikari:
+      maximum-pool-size: 4
+  main:
+    web-application-type: none
+kafka:
+  bootstrap: ${KAFKA_BOOTSTRAP:kafka-1:9092,kafka-2:9092,kafka-3:9092}
+relay:
+  batch: ${BATCH:500}
+  busy-backoff-ms: ${BUSY_BACKOFF_MS:5}
+  idle-backoff-ms: ${IDLE_BACKOFF_MS:50}
+  linger-ms: ${LINGER_MS:5}
+run:
+  id: ${RUN_ID:adhoc}
