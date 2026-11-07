@@ -11,6 +11,10 @@ spring:
       maximum-pool-size: ${DB_POOL:16}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP:kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    producer:                            # only the framework's retry/DLT publisher uses this (rule 3: idempotent, acks=all)
+      acks: all
+      properties:
+        enable.idempotence: true
     consumer:
       group-id: ${CONSUMER_GROUP:payflow-consumer}
       auto-offset-reset: earliest
@@ -26,6 +30,7 @@ consumer:
   topic: payment.events
   group: ${CONSUMER_GROUP:payflow-consumer}
   concurrency: ${CONCURRENCY:3}
+  order-check: ${ORDER_CHECK:true}     # false only for the skew lab (merchant/salted keys)
 relay: ${RELAY:poller}
 run:
   id: ${RUN_ID:adhoc}

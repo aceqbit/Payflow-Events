@@ -4,22 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.sql.DriverManager;
 
+import io.payflow.common.testing.TestInfra;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
-@Testcontainers
 class MigrationIT {
-    @Container
-    static PostgreSQLContainer<?> pg = new PostgreSQLContainer<>("postgres:18");
 
     @Test
     void migratesOnPostgres18() throws Exception {
-        Flyway.configure().dataSource(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword())
+        Flyway.configure().dataSource(TestInfra.pgUrl(), TestInfra.pgUser(), TestInfra.pgPassword())
                 .locations("classpath:db/migration").load().migrate();
-        try (var c = DriverManager.getConnection(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
+        try (var c = DriverManager.getConnection(TestInfra.pgUrl(), TestInfra.pgUser(), TestInfra.pgPassword());
              var st = c.createStatement()) {
             st.execute("insert into outbox(aggregate_type,aggregate_id,type,payload,seq,merchant_id) values ('payment','p1','T','{}',1,'m1')");
             st.execute("insert into processed_events(event_id) values (gen_random_uuid())");

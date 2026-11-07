@@ -21,6 +21,7 @@ kafka:
   bootstrap: ${KAFKA_BOOTSTRAP:kafka-1:9092,kafka-2:9092,kafka-3:9092}
 source:
   rate: ${RATE:1000}
+  total: ${TOTAL:0}                           # 0 = unlimited; counts committed rows, so kills do not change it
   workers: ${WORKERS:64}
   merchants: ${MERCHANTS:1000}
 relay: ${RELAY:dual-write}

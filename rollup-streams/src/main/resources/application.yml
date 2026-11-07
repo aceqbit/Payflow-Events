@@ -1,0 +1,19 @@
+spring:
+  config:
+    import: classpath:application-telemetry.yml
+  application:
+    name: rollup-streams
+  main:
+    web-application-type: none
+kafka:
+  bootstrap: ${KAFKA_BOOTSTRAP:kafka-1:9092,kafka-2:9092,kafka-3:9092}
+rollup:
+  application-id: ${ROLLUP_APP_ID:payflow-rollup}
+  threads: ${ROLLUP_THREADS:2}
+  buckets: ${ROLLUP_BUCKETS:8}          # B, the number of salts per merchant
+  replication: ${ROLLUP_REPLICATION:3}  # internal topics; 1 on the single-node native stack
+  state-dir: ${ROLLUP_STATE_DIR:}
+  window-ms: ${ROLLUP_WINDOW_MS:1000}
+relay: ${RELAY:poller}
+run:
+  id: ${RUN_ID:adhoc}

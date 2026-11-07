@@ -17,7 +17,7 @@ it:
 	mvn -B -ntp verify -Pit
 
 images:
-	mvn -B -ntp -DskipTests package jib:dockerBuild -pl source-app,dual-write-app -am
+	mvn -B -ntp -DskipTests package jib:dockerBuild -pl source-app,dual-write-app,relay-poller,consumer,verifier,generator,rollup-streams -am
 
 # RATE=5000 OUTBOX_MODE=retain|delete RUN_ID=... make source
 source:

@@ -24,6 +24,7 @@ import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import io.payflow.common.testing.TestInfra;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -33,17 +34,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.KafkaContainer;
 
-@Testcontainers
 class OutboxRelayIT {
-    @Container
-    static PostgreSQLContainer<?> pg = new PostgreSQLContainer<>("postgres:18");
-    @Container
-    static KafkaContainer kafka = new KafkaContainer("apache/kafka:4.1.0");
 
     static JdbcTemplate jdbc;
     static TransactionTemplate tx;
@@ -51,12 +43,12 @@ class OutboxRelayIT {
 
     @BeforeAll
     static void setUp() {
-        Flyway.configure().dataSource(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword())
+        Flyway.configure().dataSource(TestInfra.pgUrl(), TestInfra.pgUser(), TestInfra.pgPassword())
                 .locations("classpath:db/migration").load().migrate();
-        var ds = new DriverManagerDataSource(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
+        var ds = new DriverManagerDataSource(TestInfra.pgUrl(), TestInfra.pgUser(), TestInfra.pgPassword());
         jdbc = new JdbcTemplate(ds);
         tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
-        producer = newProducer(kafka.getBootstrapServers());
+        producer = newProducer(TestInfra.kafka());
     }
 
     @AfterAll
@@ -88,10 +80,10 @@ class OutboxRelayIT {
         return h == null ? null : new String(h.value(), StandardCharsets.UTF_8);
     }
 
-    /** Consumes payment.events from the start until every wanted id has been seen. Returns all records seen. */
+    /** Consumes payment.events from the start until every wanted id has been seen. Returns every copy of the wanted ids (other tests' records on the shared topic are ignored). */
     private List<ConsumerRecord<String, String>> consumeUntil(Set<String> wantedIds) {
         Properties p = new Properties();
-        p.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
+        p.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, TestInfra.kafka());
         p.put(ConsumerConfig.GROUP_ID_CONFIG, "it-" + UUID.randomUUID());
         p.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         p.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
@@ -103,21 +95,30 @@ class OutboxRelayIT {
             c.subscribe(List.of("payment.events"));
             await().atMost(Duration.ofSeconds(60)).until(() -> {
                 c.poll(Duration.ofMillis(200)).forEach(r -> {
-                    all.add(r);
-                    seen.add(header(r, "id"));
+                    if (wantedIds.contains(header(r, "id"))) {
+                        all.add(r);
+                        seen.add(header(r, "id"));
+                    }
                 });
                 return seen.containsAll(wantedIds);
             });
             // linger briefly on a quiet topic to catch any extra copies of already-seen ids
             await().during(Duration.ofSeconds(2)).atMost(Duration.ofSeconds(10)).until(() -> {
-                c.poll(Duration.ofMillis(200)).forEach(all::add);
+                c.poll(Duration.ofMillis(200)).forEach(r -> {
+                    if (wantedIds.contains(header(r, "id"))) {
+                        all.add(r);
+                    }
+                });
                 return true;
             });
         }
         return all;
     }
 
-    /** Contract (plan section 3): key = aggregate_id, value = payload compact, six headers with exact values. */
+    /**
+     * Contract (plan section 3): key = aggregate_id, value = the jsonb payload compacted (jsonb orders keys shortest first,
+     * so that is the order on the wire for both relays), six headers with exact values.
+     */
     @Test
     void oneOutboxRowBecomesTheExactRecord() {
         UUID id = jdbc.queryForObject("""
@@ -136,7 +137,7 @@ class OutboxRelayIT {
         assertThat(r.topic()).isEqualTo("payment.events");
         assertThat(r.key()).isEqualTo("pay-123");
         assertThat(r.value().getBytes(StandardCharsets.UTF_8)).isEqualTo(
-                "{\"payment_id\":\"pay-123\",\"merchant_id\":\"m-7\",\"amount_minor\":4200,\"currency\":\"USD\"}"
+                "{\"currency\":\"USD\",\"payment_id\":\"pay-123\",\"merchant_id\":\"m-7\",\"amount_minor\":4200}"
                         .getBytes(StandardCharsets.UTF_8));
         assertThat(header(r, "id")).isEqualTo(id.toString());
         assertThat(header(r, "type")).isEqualTo("PaymentCaptured");
@@ -164,7 +165,7 @@ class OutboxRelayIT {
 
         var stop = new AtomicBoolean();
         var polls = new AtomicInteger();
-        var producerB = newProducer(kafka.getBootstrapServers());
+        var producerB = newProducer(TestInfra.kafka());
         try {
             var a = relay(producer, 200);
             var b = relay(producerB, 200);
@@ -209,7 +210,7 @@ class OutboxRelayIT {
                     values ('payment', ?, 'PaymentAuthorized', '{"payment_id":"x"}', 1, 'm-1')""", "f-" + i);
         }
         // a closed producer fails every send, standing in for a broker that never acks
-        var broken = newProducer(kafka.getBootstrapServers());
+        var broken = newProducer(TestInfra.kafka());
         broken.close();
         org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () -> relay(broken, 500).pollOnce());
         assertThat(jdbc.queryForObject("select count(*) from outbox where published_at is null", Integer.class))

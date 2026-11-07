@@ -32,8 +32,15 @@ public class PaymentListener {
     @KafkaListener(topics = "${consumer.topic:payment.events}", groupId = "${consumer.group:payflow-consumer}",
             concurrency = "${consumer.concurrency:3}")
     public void onRecord(ConsumerRecord<String, String> rec, Acknowledgment ack) {
-        EventMeta meta = RecordShape.fromRecord(rec);
-        EventProcessor.Result result = processor.process(meta);
+        EventProcessor.Result result;
+        EventMeta meta;
+        try {
+            meta = RecordShape.fromRecord(rec);
+            result = processor.process(meta);
+        } catch (RuntimeException e) {
+            metrics.retry(nextStage(rec.topic(), e)); // count where the failure goes, then let the retry/DLQ path see it
+            throw e;
+        }
         ack.acknowledge();
 
         Instant now = Instant.now();
@@ -43,6 +50,14 @@ public class PaymentListener {
                     nonNegative(Duration.between(appended, now)));
         }
         metrics.consumerLag(rec.topic(), rec.partition(), nonNegative(Duration.between(appended, now)).toMillis() / 1000.0);
+    }
+
+    /** Where a failed record goes next: retry-5s, retry-1m or the DLQ (non-retryable errors skip straight to the DLQ). */
+    static String nextStage(String topic, RuntimeException e) {
+        if (e instanceof io.payflow.common.NonRetryableEventException || topic.endsWith("-retry-1m")) {
+            return "dlq";
+        }
+        return topic.endsWith("-retry-5s") ? "retry-1m" : "retry-5s";
     }
 
     /** A partition with nothing left to read has no lag. */

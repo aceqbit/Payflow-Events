@@ -1,0 +1,29 @@
+spring:
+  config:
+    import: classpath:application-telemetry.yml
+  application:
+    name: generator
+  datasource:
+    url: jdbc:postgresql://${PG_HOST:postgres}:5432/payflow
+    username: ${PG_USER:payflow}
+    password: ${PG_PASSWORD:payflow}
+    hikari:
+      maximum-pool-size: ${DB_POOL:32}
+  threads:
+    virtual:
+      enabled: true
+  main:
+    web-application-type: none
+gen:
+  rate: ${RATE:1000}                 # events/s across all workers
+  total: ${TOTAL:0}                  # 0 = run until stopped
+  workers: ${WORKERS:64}
+  seed: ${SEED:42}
+  merchants: ${MERCHANTS:1000}
+  hot-share: ${HOT_SHARE:0}          # 0 = uniform; 0.4 = one merchant (m-0000) gets 40% of events
+  key-strategy: ${KEY_STRATEGY:aggregate}   # aggregate | merchant | salted (skew lab only)
+  salt-buckets: ${SALT_BUCKETS:8}
+  pill-rate: ${PILL_RATE:0}          # share of events that are deliberate poison pills (counted in the pills table)
+relay: ${RELAY:poller}
+run:
+  id: ${RUN_ID:adhoc}

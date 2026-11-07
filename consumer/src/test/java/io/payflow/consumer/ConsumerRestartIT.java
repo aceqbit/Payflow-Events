@@ -18,6 +18,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
+import io.payflow.common.testing.TestInfra;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -25,41 +26,43 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.KafkaContainer;
 
 /** 1k payments x 5 events through real Kafka and Postgres while the consumer app is repeatedly stopped and restarted. */
-@Testcontainers
 class ConsumerRestartIT {
-    @Container
-    static PostgreSQLContainer<?> pg = new PostgreSQLContainer<>("postgres:18");
-    @Container
-    static KafkaContainer kafka = new KafkaContainer("apache/kafka:4.1.0");
 
     static JdbcTemplate jdbc;
+    static final String GROUP = java.util.UUID.randomUUID().toString();
 
     @BeforeAll
     static void setUp() throws Exception {
-        Flyway.configure().dataSource(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword())
+        Flyway.configure().dataSource(TestInfra.pgUrl(), TestInfra.pgUser(), TestInfra.pgPassword())
                 .locations("classpath:db/migration").load().migrate();
-        jdbc = new JdbcTemplate(new DriverManagerDataSource(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword()));
+        jdbc = new JdbcTemplate(new DriverManagerDataSource(TestInfra.pgUrl(), TestInfra.pgUser(), TestInfra.pgPassword()));
+        jdbc.execute("TRUNCATE processed_events, effect_log, aggregate_seq, merchant_balance");
         try (var admin = AdminClient.create(java.util.Map.<String, Object>of("bootstrap.servers",
-                kafka.getBootstrapServers()))) {
-            admin.createTopics(List.of(new NewTopic("payment.events", 12, (short) 1))).all().get();
+                TestInfra.kafka()))) {
+            try {
+                admin.createTopics(List.of(new NewTopic("itrestart.events", 12, (short) 1))).all().get();
+            } catch (java.util.concurrent.ExecutionException e) {
+                if (!(e.getCause() instanceof org.apache.kafka.common.errors.TopicExistsException)) {
+                    throw e;
+                }
+            }
         }
     }
 
     private static ConfigurableApplicationContext startConsumer() {
-        return new SpringApplicationBuilder(ConsumerApp.class).properties(
-                "spring.datasource.url=" + pg.getJdbcUrl(),
-                "spring.datasource.username=" + pg.getUsername(),
-                "spring.datasource.password=" + pg.getPassword(),
-                "spring.kafka.bootstrap-servers=" + kafka.getBootstrapServers(),
-                "management.otlp.metrics.export.enabled=false",
-                "management.opentelemetry.tracing.export.otlp.endpoint=http://127.0.0.1:1/v1/traces",
-                "management.opentelemetry.logging.export.otlp.endpoint=http://127.0.0.1:1/v1/logs").run();
+        // command-line args, not builder properties: they must beat application.yml
+        return new SpringApplicationBuilder(ConsumerApp.class).run(
+                "--spring.datasource.url=" + TestInfra.pgUrl(),
+                "--spring.datasource.username=" + TestInfra.pgUser(),
+                "--spring.datasource.password=" + TestInfra.pgPassword(),
+                "--spring.kafka.bootstrap-servers=" + TestInfra.kafka(),
+                "--consumer.topic=itrestart.events",
+                "--consumer.group=it-restart-" + GROUP,
+                "--management.otlp.metrics.export.enabled=false",
+                "--management.opentelemetry.tracing.export.otlp.endpoint=http://127.0.0.1:1/v1/traces",
+                "--management.opentelemetry.logging.export.otlp.endpoint=http://127.0.0.1:1/v1/logs");
     }
 
     private static double violations(ConfigurableApplicationContext ctx) {
@@ -72,7 +75,7 @@ class ConsumerRestartIT {
         int payments = 1_000;
         int perPayment = 5;
         Properties p = new Properties();
-        p.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
+        p.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, TestInfra.kafka());
         p.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
         p.put(ProducerConfig.ACKS_CONFIG, "all");
         p.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -81,7 +84,7 @@ class ConsumerRestartIT {
             for (int seq = 1; seq <= perPayment; seq++) {
                 for (int i = 0; i < payments; i++) {
                     String pid = "pay-" + i;
-                    producer.send(RecordShape.toRecord(new OutboxRow(UuidV7.next(), "payment", pid,
+                    producer.send(RecordShape.toRecord(new OutboxRow(UuidV7.next(), "itrestart", pid,
                             "PaymentCaptured", "{\"payment_id\":\"" + pid + "\",\"amount_minor\":1}", seq,
                             Instant.now(), null, "m-" + (i % 50))));
                 }

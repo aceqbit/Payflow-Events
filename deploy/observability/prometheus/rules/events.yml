@@ -1,0 +1,26 @@
+# Recording rules, exactly as plan section 6. SLI windows 5m, 30m, 1h, 6h feed the burn-rate alerts.
+groups:
+  - name: payflow-events
+    rules:
+      - record: events:e2e_p99:1m
+        expr: histogram_quantile(0.99, sum by (le, relay, run_id) (rate(payflow_events_e2e_latency_seconds_bucket{poison="false"}[1m])))
+      - record: events:relay_p99:1m
+        expr: histogram_quantile(0.99, sum by (le, relay, run_id) (rate(payflow_events_relay_latency_seconds_bucket[1m])))
+      - record: events:consume_p99:1m
+        expr: histogram_quantile(0.99, sum by (le, run_id) (rate(payflow_events_consume_latency_seconds_bucket[1m])))
+      - record: events:throughput:1m
+        expr: sum by (relay, run_id) (rate(payflow_events_processed_total{result="applied"}[1m]))
+      - record: events:partition_rate:1m
+        expr: deriv(kafka_partition_current_offset{topic="payment.events"}[1m])
+      - record: events:partition_imbalance:1m
+        expr: max(events:partition_rate:1m) / avg(events:partition_rate:1m)
+      - record: events:max_lag_seconds
+        expr: max by (run_id) (payflow_events_consumer_lag_seconds)
+      - record: events:sli_latency_200ms:5m
+        expr: sum(rate(payflow_events_e2e_latency_seconds_bucket{le="0.2",poison="false"}[5m])) / sum(rate(payflow_events_e2e_latency_seconds_count{poison="false"}[5m]))
+      - record: events:sli_latency_200ms:30m
+        expr: sum(rate(payflow_events_e2e_latency_seconds_bucket{le="0.2",poison="false"}[30m])) / sum(rate(payflow_events_e2e_latency_seconds_count{poison="false"}[30m]))
+      - record: events:sli_latency_200ms:1h
+        expr: sum(rate(payflow_events_e2e_latency_seconds_bucket{le="0.2",poison="false"}[1h])) / sum(rate(payflow_events_e2e_latency_seconds_count{poison="false"}[1h]))
+      - record: events:sli_latency_200ms:6h
+        expr: sum(rate(payflow_events_e2e_latency_seconds_bucket{le="0.2",poison="false"}[6h])) / sum(rate(payflow_events_e2e_latency_seconds_count{poison="false"}[6h]))

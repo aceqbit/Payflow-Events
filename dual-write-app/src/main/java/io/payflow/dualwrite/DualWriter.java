@@ -64,7 +64,8 @@ public class DualWriter {
         this.runId = runId;
     }
 
-    public void writeOne() throws Exception {
+    /** Returns true when the business row committed (false for a forced kafka-first rollback). */
+    public boolean writeOne() throws Exception {
         var rnd = ThreadLocalRandom.current();
         String paymentId = UUID.randomUUID().toString();
         String merchantId = "m-%04d".formatted(rnd.nextInt(merchants));
@@ -74,14 +75,15 @@ public class DualWriter {
         String payload = PaymentPayload.authorized(paymentId, merchantId, amount);
         boolean forceRollback = rnd.nextDouble() < rollbackRate;
 
+        boolean committed;
         Span span = tracer.nextSpan().name("dual-write-app." + mode.name().toLowerCase()).start();
         try (var ignored = tracer.withSpan(span)) {
             var record = RecordShape.toRecord(new OutboxRow(eventId, "payment", paymentId, "PaymentAuthorized", payload,
                     1, occurredAt, Traceparent.of(span.context()), merchantId));
-            switch (mode) {
+            committed = switch (mode) {
                 case DB_FIRST -> dbFirst(paymentId, merchantId, amount, eventId, record);
                 case KAFKA_FIRST -> kafkaFirst(paymentId, merchantId, amount, eventId, record, forceRollback);
-            }
+            };
         } catch (Exception e) {
             span.error(e);
             throw e;
@@ -89,6 +91,7 @@ public class DualWriter {
             span.end();
         }
         metrics.generatorSent("uniform", 1);
+        return committed;
     }
 
     private void insert(String paymentId, String merchantId, long amount, UUID eventId) {
@@ -96,7 +99,7 @@ public class DualWriter {
     }
 
     /** Commit first, then fire the send. A crash before the callback, or a failed send, loses a committed event. */
-    private void dbFirst(String paymentId, String merchantId, long amount, UUID eventId,
+    private boolean dbFirst(String paymentId, String merchantId, long amount, UUID eventId,
                          ProducerRecord<String, String> record) {
         tx.executeWithoutResult(s -> insert(paymentId, merchantId, amount, eventId));
         producer.send(record, (md, ex) -> {
@@ -104,10 +107,11 @@ public class DualWriter {
                 log.warn("db-first send failed (event lost, count={}): {}", sendFailures.get(), ex.toString());
             }
         });
+        return true;
     }
 
     /** Wait for the broker ack, then commit. A rollback or crash after the ack leaves a phantom event in Kafka. */
-    private void kafkaFirst(String paymentId, String merchantId, long amount, UUID eventId,
+    private boolean kafkaFirst(String paymentId, String merchantId, long amount, UUID eventId,
                             ProducerRecord<String, String> record, boolean forceRollback) throws Exception {
         producer.send(record).get();
         try {
@@ -119,6 +123,8 @@ public class DualWriter {
             });
         } catch (ForcedRollback expected) {
             // The experiment: the event is already in Kafka but never committed. The verifier counts it as a phantom.
+            return false;
         }
+        return true;
     }
 }

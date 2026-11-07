@@ -11,6 +11,7 @@ management:
       export:
         url: ${OTEL_COLLECTOR:http://otel-collector:4318}/v1/metrics
         step: 5s
+        base-time-unit: seconds   # payflow_events_*_latency_seconds, as plan section 5 and the recording rules expect
   opentelemetry:
     tracing:
       export:

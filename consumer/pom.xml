@@ -16,7 +16,7 @@
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
   </dependencies>
   <build><plugins>
-      <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>
+      <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><configuration><mainClass>io.payflow.consumer.ConsumerApp</mainClass></configuration></plugin>
       <plugin><groupId>com.google.cloud.tools</groupId><artifactId>jib-maven-plugin</artifactId></plugin>
   </plugins></build>
 </project>

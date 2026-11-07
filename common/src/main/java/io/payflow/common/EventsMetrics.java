@@ -110,10 +110,24 @@ public class EventsMetrics {
         return v;
     }
 
-    /** Verifier gauges, set once per run. */
+    private final Map<String, AtomicLong> verifierValues = new ConcurrentHashMap<>();
+
+    /**
+     * Verifier gauge under payflow.verifier.<name>. Setting an existing (name, labels) pair updates it, so the scheduled
+     * verifier refreshes the same series on every pass.
+     */
     public void verifierGauge(String name, double value, String runId, String scenario, String relay) {
-        Tags t = Tags.of("run_id", runId, "scenario", scenario, "relay", relay);
-        AtomicLong v = new AtomicLong(Double.doubleToLongBits(value));
-        Gauge.builder("payflow.verifier." + name, v, a -> Double.longBitsToDouble(a.get())).tags(t).register(reg);
+        gauge("payflow.verifier." + name, value, runId, scenario, relay);
+    }
+
+    /** Gauge with an exact full name and the run labels (used for payflow.rollup.mismatch.minor). */
+    public void gauge(String fullName, double value, String runId, String scenario, String relay) {
+        String id = fullName + "|" + runId + "|" + scenario + "|" + relay;
+        verifierValues.computeIfAbsent(id, k -> {
+            AtomicLong v = new AtomicLong();
+            Gauge.builder(fullName, v, a -> Double.longBitsToDouble(a.get()))
+                    .tags(Tags.of("run_id", runId, "scenario", scenario, "relay", relay)).register(reg);
+            return v;
+        }).set(Double.doubleToLongBits(value));
     }
 }

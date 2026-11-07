@@ -24,6 +24,7 @@ import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import io.payflow.common.testing.TestInfra;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -33,17 +34,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.KafkaContainer;
 
-@Testcontainers
 class DualWriterIT {
-    @Container
-    static PostgreSQLContainer<?> pg = new PostgreSQLContainer<>("postgres:18");
-    @Container
-    static KafkaContainer kafka = new KafkaContainer("apache/kafka:4.1.0");
 
     static JdbcTemplate jdbc;
     static TransactionTemplate tx;
@@ -51,13 +43,13 @@ class DualWriterIT {
 
     @BeforeAll
     static void setUp() {
-        Flyway.configure().dataSource(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword())
+        Flyway.configure().dataSource(TestInfra.pgUrl(), TestInfra.pgUser(), TestInfra.pgPassword())
                 .locations("classpath:db/migration").load().migrate();
-        var ds = new DriverManagerDataSource(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
+        var ds = new DriverManagerDataSource(TestInfra.pgUrl(), TestInfra.pgUser(), TestInfra.pgPassword());
         jdbc = new JdbcTemplate(ds);
         tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
         Properties p = new Properties();
-        p.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
+        p.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, TestInfra.kafka());
         p.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
         p.put(ProducerConfig.ACKS_CONFIG, "all");
         p.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -103,7 +95,7 @@ class DualWriterIT {
     /** Reads payment.events from the start until every wanted id has been seen; returns those records by id. */
     private Map<String, ConsumerRecord<String, String>> awaitPublished(Set<String> wanted) {
         Properties p = new Properties();
-        p.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
+        p.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, TestInfra.kafka());
         p.put(ConsumerConfig.GROUP_ID_CONFIG, "it-" + UUID.randomUUID());
         p.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         p.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);

@@ -1,0 +1,249 @@
+rule_files:
+  - ../rules/events.yml
+  - ../rules/alerts.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    name: LostEvents fires
+    input_series:
+      - series: 'payflow_verifier_lost_events{relay="poller",run_id="a"}'
+        values: '0 0 3x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LostEvents
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations: {summary: "Verifier counted lost events on an outbox run"}
+  - interval: 1m
+    name: LostEvents stays quiet
+    input_series:
+      - series: 'payflow_verifier_lost_events{relay="dual-write",run_id="a"}'
+        values: '0 0 3x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LostEvents
+        exp_alerts: []
+  - interval: 1m
+    name: DuplicateEffects fires
+    input_series:
+      - series: 'payflow_verifier_duplicate_effects{relay="poller",run_id="a"}'
+        values: '0 0 2x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: DuplicateEffects
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations: {summary: "More than one effect for one event id"}
+  - interval: 1m
+    name: DuplicateEffects stays quiet
+    input_series:
+      - series: 'payflow_verifier_duplicate_effects{relay="poller",run_id="a"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: DuplicateEffects
+        exp_alerts: []
+  - interval: 1m
+    name: OrderViolations fires
+    input_series:
+      - series: 'payflow_events_order_violations_total{kind="reversal"}'
+        values: '0 0 5 10 15 20 25'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: OrderViolations
+        exp_alerts:
+          - exp_labels: {kind: reversal, severity: critical}
+            exp_annotations: {summary: "Gap or reversal in per-aggregate order"}
+  - interval: 1m
+    name: OrderViolations stays quiet
+    input_series:
+      - series: 'payflow_events_order_violations_total{kind="reversal"}'
+        values: '3x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: OrderViolations
+        exp_alerts: []
+  - interval: 1m
+    name: VerifierStale fires
+    input_series:
+      - series: 'payflow_verifier_last_run_timestamp_seconds{run_id="a"}'
+        values: '0x1600'
+    alert_rule_test:
+      - eval_time: 1500m
+        alertname: VerifierStale
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations: {summary: "No verifier run in 24 h"}
+  - interval: 1m
+    name: VerifierStale stays quiet
+    input_series:
+      - series: 'payflow_verifier_last_run_timestamp_seconds{run_id="a"}'
+        values: '0+60x1600'
+    alert_rule_test:
+      - eval_time: 1500m
+        alertname: VerifierStale
+        exp_alerts: []
+  - interval: 1m
+    name: ConsumerLagHigh fires
+    input_series:
+      - series: 'payflow_events_consumer_lag_seconds{run_id="r1",topic="payment.events",partition="0"}'
+        values: '45x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ConsumerLagHigh
+        exp_alerts:
+          - exp_labels: {run_id: r1, severity: page}
+            exp_annotations: {summary: "Consumer lag above 30 s"}
+  - interval: 1m
+    name: ConsumerLagHigh stays quiet
+    input_series:
+      - series: 'payflow_events_consumer_lag_seconds{run_id="r1",topic="payment.events",partition="0"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ConsumerLagHigh
+        exp_alerts: []
+  - interval: 1m
+    name: LatencyFastBurn fires
+    input_series:
+      - series: 'payflow_events_e2e_latency_seconds_bucket{le="0.2",poison="false",relay="poller"}'
+        values: '0+50x100'
+      - series: 'payflow_events_e2e_latency_seconds_count{poison="false",relay="poller"}'
+        values: '0+100x100'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: LatencyFastBurn
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations: {summary: "Latency SLO burning at more than 14.4x"}
+  - interval: 1m
+    name: LatencyFastBurn stays quiet
+    input_series:
+      - series: 'payflow_events_e2e_latency_seconds_bucket{le="0.2",poison="false",relay="poller"}'
+        values: '0+100x100'
+      - series: 'payflow_events_e2e_latency_seconds_count{poison="false",relay="poller"}'
+        values: '0+100x100'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: LatencyFastBurn
+        exp_alerts: []
+  - interval: 1m
+    name: DLQReceiving fires
+    input_series:
+      - series: 'payflow_events_retry_total{stage="dlq"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: DLQReceiving
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations: {summary: "Events are reaching the DLQ"}
+  - interval: 1m
+    name: DLQReceiving stays quiet
+    input_series:
+      - series: 'payflow_events_retry_total{stage="dlq"}'
+        values: '5x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: DLQReceiving
+        exp_alerts: []
+  - interval: 1m
+    name: DLQNotReplayed fires
+    input_series:
+      - series: 'kafka_consumer_group_lag{group="dlq-replay",topic="payments.dlq",partition="0"}'
+        values: '10x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: DLQNotReplayed
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations: {summary: "DLQ has unreplayed events"}
+  - interval: 1m
+    name: DLQNotReplayed stays quiet
+    input_series:
+      - series: 'kafka_consumer_group_lag{group="dlq-replay",topic="payments.dlq",partition="0"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: DLQNotReplayed
+        exp_alerts: []
+  - interval: 1m
+    name: DebeziumBehind fires
+    input_series:
+      - series: 'debezium_metrics_millisecondsbehindsource{context="streaming"}'
+        values: '20000x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: DebeziumBehind
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations: {summary: "Debezium more than 10 s behind the source"}
+  - interval: 1m
+    name: DebeziumBehind stays quiet
+    input_series:
+      - series: 'debezium_metrics_millisecondsbehindsource{context="streaming"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: DebeziumBehind
+        exp_alerts: []
+  - interval: 1m
+    name: ReplicationSlotLag fires
+    input_series:
+      - series: 'pg_replication_slot_lag_bytes{slot="debezium"}'
+        values: '2e9x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ReplicationSlotLag
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations: {summary: "Replication slot retains more than 1 GB of WAL"}
+  - interval: 1m
+    name: ReplicationSlotLag stays quiet
+    input_series:
+      - series: 'pg_replication_slot_lag_bytes{slot="debezium"}'
+        values: '1e6x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ReplicationSlotLag
+        exp_alerts: []
+  - interval: 1m
+    name: OutboxBacklogOld fires
+    input_series:
+      - series: 'pg_outbox_oldest_unpublished_seconds'
+        values: '60x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: OutboxBacklogOld
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations: {summary: "Oldest unpublished outbox row older than 30 s"}
+  - interval: 1m
+    name: OutboxBacklogOld stays quiet
+    input_series:
+      - series: 'pg_outbox_oldest_unpublished_seconds'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: OutboxBacklogOld
+        exp_alerts: []
+  - interval: 1m
+    name: UnderReplicated fires
+    input_series:
+      - series: 'kafka_server_replicamanager_underreplicatedpartitions{scenario="smoke"}'
+        values: '2x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: UnderReplicated
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations: {summary: "Under-replicated partitions outside a chaos run"}
+  - interval: 1m
+    name: UnderReplicated stays quiet
+    input_series:
+      - series: 'kafka_server_replicamanager_underreplicatedpartitions{scenario="chaos-broker"}'
+        values: '2x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: UnderReplicated
+        exp_alerts: []

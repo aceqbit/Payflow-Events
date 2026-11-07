@@ -53,15 +53,23 @@ public class EventProcessor {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
     private final EventsMetrics metrics;
+    private final boolean orderCheck;
 
     public EventProcessor(JdbcTemplate jdbc, TransactionTemplate tx, EventsMetrics metrics) {
+        this(jdbc, tx, metrics, true);
+    }
+
+    /** orderCheck=false is for the skew lab only: its merchant and salted keys put many aggregates on one key, so per-key seq means nothing. */
+    public EventProcessor(JdbcTemplate jdbc, TransactionTemplate tx, EventsMetrics metrics, boolean orderCheck) {
         this.jdbc = jdbc;
         this.tx = tx;
         this.metrics = metrics;
+        this.orderCheck = orderCheck;
     }
 
     public Result process(EventMeta m) {
-        long delta = delta(m);
+        Parsed parsed = parse(m);
+        long delta = parsed.delta();
         long t0 = System.nanoTime();
         Result r = tx.execute(status -> {
             int inserted = jdbc.update(DEDUP, m.id());
@@ -69,19 +77,27 @@ public class EventProcessor {
             if (inserted == 0) {
                 return Result.DUPLICATE;
             }
-            List<Long> last = jdbc.queryForList(LAST_SEQ, Long.class, m.aggregateId());
-            long expected = last.isEmpty() ? 1 : last.get(0) + 1;
-            boolean reversal = !last.isEmpty() && m.seq() <= last.get(0);
-            if (reversal) {
-                violation("reversal", m, expected);
-                return Result.REVERSAL_SKIPPED;
+            if (parsed.failEffect()) {
+                // a poison pill whose side effect throws: the transaction (dedup row included) rolls back, the retry path takes over
+                throw new IllegalStateException("side effect failed for poison event " + m.id());
             }
-            if (m.seq() != expected) {
-                violation("gap", m, expected);
+            if (orderCheck) {
+                List<Long> last = jdbc.queryForList(LAST_SEQ, Long.class, m.aggregateId());
+                long expected = last.isEmpty() ? 1 : last.get(0) + 1;
+                boolean reversal = !last.isEmpty() && m.seq() <= last.get(0);
+                if (reversal) {
+                    violation("reversal", m, expected);
+                    return Result.REVERSAL_SKIPPED;
+                }
+                if (m.seq() != expected) {
+                    violation("gap", m, expected);
+                }
             }
             jdbc.update(BALANCE, m.merchantId(), delta);
             jdbc.update(EFFECT, m.id());
-            jdbc.update(SET_SEQ, m.aggregateId(), m.seq());
+            if (orderCheck) {
+                jdbc.update(SET_SEQ, m.aggregateId(), m.seq());
+            }
             return Result.APPLIED;
         });
         metrics.processed(m.topic(), r.label(), 1);
@@ -103,19 +119,26 @@ public class EventProcessor {
         return p.length >= 2 ? p[1] : "-";
     }
 
-    /** Signed amount of the event. A payload we cannot read is not retryable (rule 7). */
-    static long delta(EventMeta m) {
+    record Parsed(long delta, boolean failEffect) {
+    }
+
+    /** Signed amount and the pill flag. A payload we cannot read is not retryable (rule 7). */
+    static Parsed parse(EventMeta m) {
         try {
             JsonNode n = MAPPER.readTree(m.payload());
             if (!n.has("amount_minor") || !n.get("amount_minor").isIntegralNumber()) {
                 throw new NonRetryableEventException("payload has no integer amount_minor, id=" + m.id());
             }
             long amount = n.get("amount_minor").asLong();
-            return "PaymentRefunded".equals(m.type()) ? -amount : amount;
+            return new Parsed("PaymentRefunded".equals(m.type()) ? -amount : amount, n.path("fail_effect").asBoolean(false));
         } catch (NonRetryableEventException e) {
             throw e;
         } catch (RuntimeException e) {
             throw new NonRetryableEventException("unreadable payload, id=" + m.id() + ": " + e.getMessage());
         }
+    }
+
+    static long delta(EventMeta m) {
+        return parse(m).delta();
     }
 }

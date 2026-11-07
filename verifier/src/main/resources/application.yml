@@ -1,0 +1,28 @@
+spring:
+  config:
+    import: classpath:application-telemetry.yml
+  application:
+    name: verifier
+  datasource:
+    url: jdbc:postgresql://${PG_HOST:postgres}:5432/payflow
+    username: ${PG_USER:payflow}
+    password: ${PG_PASSWORD:payflow}
+    hikari:
+      maximum-pool-size: 4
+  main:
+    web-application-type: none
+kafka:
+  bootstrap: ${KAFKA_BOOTSTRAP:kafka-1:9092,kafka-2:9092,kafka-3:9092}
+verify:
+  run-id: ${RUN_ID:adhoc}
+  scenario: ${SCENARIO:none}
+  every-seconds: ${VERIFY_EVERY_SECONDS:0}
+  expect-clean: ${VERIFY_EXPECT_CLEAN:false}
+  check-rollup: ${VERIFY_CHECK_ROLLUP:false}
+  start-offsets: ${VERIFY_START_OFFSETS:}
+  results-file: ${RESULTS_FILE:docs/results.json}
+  window-start: ${RUN_START_EPOCH:0}      # measure window for report.py
+  window-end: ${RUN_END_EPOCH:0}
+  rate: ${RATE:0}
+  bench-name: ${BENCH_NAME:}
+relay: ${RELAY:poller}

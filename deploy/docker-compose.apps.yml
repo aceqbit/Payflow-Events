@@ -36,3 +36,64 @@ services:
       DUALWRITE_MODE: ${DUALWRITE_MODE:-db-first}
       ROLLBACK_RATE: ${ROLLBACK_RATE:-0.001}
       RELAY: dual-write
+
+  # ---- pipeline services (profiles keep `make up` light; scripts start what a run needs) ----
+  relay-poller:
+    image: ghcr.io/aceqbit/payflow-relay-poller:1.0.0
+    container_name: relay-poller
+    profiles: ["poller"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      topic-init: {condition: service_completed_successfully}
+    environment:
+      <<: *app-env
+      SERVICE_NAME: relay-poller
+      KAFKA_BOOTSTRAP: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      BATCH: ${BATCH:-500}
+      RELAY: poller
+  consumer:
+    image: ghcr.io/aceqbit/payflow-consumer:1.0.0
+    container_name: consumer
+    profiles: ["consumer"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      topic-init: {condition: service_completed_successfully}
+    environment:
+      <<: *app-env
+      SERVICE_NAME: payflow-consumer
+      KAFKA_BOOTSTRAP: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      CONSUMER_GROUP: ${CONSUMER_GROUP:-payflow-consumer}
+      CONCURRENCY: ${CONCURRENCY:-3}
+      RELAY: ${RELAY:-poller}
+  generator:
+    image: ghcr.io/aceqbit/payflow-generator:1.0.0
+    container_name: generator
+    profiles: ["gen"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      <<: *app-env
+      SERVICE_NAME: generator
+      TOTAL: ${TOTAL:-0}
+      SEED: ${SEED:-42}
+      HOT_SHARE: ${HOT_SHARE:-0}
+      KEY_STRATEGY: ${KEY_STRATEGY:-aggregate}
+      PILL_RATE: ${PILL_RATE:-0}
+      RELAY: ${RELAY:-poller}
+  verifier:
+    image: ghcr.io/aceqbit/payflow-verifier:1.0.0
+    container_name: verifier
+    profiles: ["verify"]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+    volumes: ["../docs:/app/docs"]
+    environment:
+      <<: *app-env
+      SERVICE_NAME: verifier
+      KAFKA_BOOTSTRAP: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      RESULTS_FILE: /app/docs/results.json
+      VERIFY_EXPECT_CLEAN: ${VERIFY_EXPECT_CLEAN:-false}
+      VERIFY_CHECK_ROLLUP: ${VERIFY_CHECK_ROLLUP:-false}
+      VERIFY_START_OFFSETS: ${VERIFY_START_OFFSETS:-}
+      RELAY: ${RELAY:-poller}

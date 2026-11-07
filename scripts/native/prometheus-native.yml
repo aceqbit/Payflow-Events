@@ -1,0 +1,11 @@
+# Docker-free Prometheus for local runs: apps push OTLP metrics straight into Prometheus (--web.enable-otlp-receiver),
+# so no Collector is needed. Same recording rules and alerts as the Docker stack.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+rule_files:
+  - ../../deploy/observability/prometheus/rules/events.yml
+  - ../../deploy/observability/prometheus/rules/alerts.yml
+otlp:
+  # resource attributes set by the run scripts become labels on every series (CLAUDE.md telemetry conventions)
+  promote_resource_attributes: [run_id, scenario, relay]

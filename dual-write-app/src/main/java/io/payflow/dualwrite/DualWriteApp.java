@@ -6,6 +6,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.tracing.Tracer;
 import io.payflow.common.EventsMetrics;
 import io.payflow.common.LoadLifecycle;
+import io.payflow.common.TotalGate;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -13,6 +14,7 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -57,8 +59,30 @@ public class DualWriteApp {
     }
 
     @Bean
-    LoadLifecycle load(DualWriter writer, @Value("${source.rate:1000}") int rate,
-                       @Value("${source.workers:64}") int workers) {
-        return new LoadLifecycle("dual-write-app", rate, workers, writer::writeOne);
+    LoadLifecycle load(DualWriter writer, JdbcTemplate jdbc, ConfigurableApplicationContext ctx,
+                       @Value("${source.rate:1000}") int rate, @Value("${source.workers:64}") int workers,
+                       @Value("${source.total:0}") long total, @Value("${run.id:adhoc}") String runId) {
+        var gate = new TotalGate(total, () -> committed(jdbc, runId));
+        return new LoadLifecycle("dual-write-app", rate, workers, () -> {
+            if (!gate.claim()) {
+                if (gate.firstToFinish()) {
+                    TotalGate.finishAsync(ctx, "DUALWRITE", () -> "committed=" + committed(jdbc, runId));
+                }
+                return;
+            }
+            boolean ok = false;
+            try {
+                ok = writer.writeOne();
+            } finally {
+                if (!ok) {
+                    gate.release(); // failed or rolled back: it does not count towards TOTAL
+                }
+            }
+        });
+    }
+
+    private static long committed(JdbcTemplate jdbc, String runId) {
+        Long n = jdbc.queryForObject("select count(*) from payments where run_id = ?", Long.class, runId);
+        return n == null ? 0 : n;
     }
 }
