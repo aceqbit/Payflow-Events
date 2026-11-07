@@ -1,0 +1,31 @@
+spring:
+  config:
+    import: classpath:application-telemetry.yml
+  application:
+    name: consumer
+  datasource:
+    url: jdbc:postgresql://${PG_HOST:postgres}:5432/payflow
+    username: ${PG_USER:payflow}
+    password: ${PG_PASSWORD:payflow}
+    hikari:
+      maximum-pool-size: ${DB_POOL:16}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    consumer:
+      group-id: ${CONSUMER_GROUP:payflow-consumer}
+      auto-offset-reset: earliest
+      enable-auto-commit: false          # rule 4: offsets are acked after the DB commit
+      max-poll-records: ${MAX_POLL_RECORDS:500}
+    listener:
+      ack-mode: manual
+      idle-event-interval: 2s
+      observation-enabled: true          # continues the trace from the traceparent header
+  main:
+    web-application-type: none
+consumer:
+  topic: payment.events
+  group: ${CONSUMER_GROUP:payflow-consumer}
+  concurrency: ${CONCURRENCY:3}
+relay: ${RELAY:poller}
+run:
+  id: ${RUN_ID:adhoc}
