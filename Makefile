@@ -11,10 +11,10 @@ down:
 	$(COMPOSE) down -v
 
 test:
-	mvn -B -ntp verify -DskipITs
+	mvn -B -ntp verify
 
 it:
-	mvn -B -ntp verify -DskipTests=false -Pit
+	mvn -B -ntp verify -Pit
 
 chaos:
 	MATRIX=$(MATRIX) bash chaos/run-matrix.sh

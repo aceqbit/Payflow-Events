@@ -1,0 +1,36 @@
+# Shared by all apps (plan section 4). Import with spring.config.import=classpath:application-telemetry.yml
+spring:
+  kafka:
+    listener:
+      observation-enabled: true
+    template:
+      observation-enabled: true
+management:
+  otlp:
+    metrics:
+      export:
+        url: ${OTEL_COLLECTOR:http://otel-collector:4318}/v1/metrics
+        step: 5s
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_COLLECTOR:http://otel-collector:4318}/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTEL_COLLECTOR:http://otel-collector:4318}/v1/logs
+    resource-attributes:
+      service.name: ${SERVICE_NAME:payflow-app}
+      run_id: ${RUN_ID:adhoc}
+      scenario: ${SCENARIO:none}
+      relay: ${RELAY:poller}
+  tracing:
+    sampling:
+      probability: 1.0
+  metrics:
+    distribution:
+      slo:
+        payflow.events.e2e.latency: 10ms,25ms,50ms,100ms,200ms,500ms,1s,2s,5s
+        payflow.events.relay.latency: 5ms,10ms,25ms,50ms,100ms,200ms,500ms,1s
+        payflow.events.consume.latency: 5ms,10ms,25ms,50ms,100ms,200ms,500ms,1s
