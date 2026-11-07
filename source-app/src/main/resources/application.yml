@@ -1,0 +1,25 @@
+spring:
+  config:
+    import: classpath:application-telemetry.yml
+  application:
+    name: source-app
+  datasource:
+    url: jdbc:postgresql://${PG_HOST:postgres}:5432/payflow
+    username: ${PG_USER:payflow}
+    password: ${PG_PASSWORD:payflow}
+    hikari:
+      maximum-pool-size: ${DB_POOL:32}
+  threads:
+    virtual:
+      enabled: true
+  main:
+    web-application-type: none
+outbox:
+  mode: ${OUTBOX_MODE:retain}     # retain (polling relay) | delete (CDC)
+source:
+  rate: ${RATE:1000}              # events/s across all workers
+  workers: ${WORKERS:64}
+  merchants: ${MERCHANTS:1000}    # uniform in phase 1
+relay: ${RELAY:poller}
+run:
+  id: ${RUN_ID:adhoc}

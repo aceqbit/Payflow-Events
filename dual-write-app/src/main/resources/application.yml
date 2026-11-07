@@ -1,0 +1,28 @@
+spring:
+  config:
+    import: classpath:application-telemetry.yml
+  application:
+    name: dual-write-app
+  datasource:
+    url: jdbc:postgresql://${PG_HOST:postgres}:5432/payflow
+    username: ${PG_USER:payflow}
+    password: ${PG_PASSWORD:payflow}
+    hikari:
+      maximum-pool-size: ${DB_POOL:32}
+  threads:
+    virtual:
+      enabled: true
+  main:
+    web-application-type: none
+dualwrite:
+  mode: ${DUALWRITE_MODE:db-first}          # db-first | kafka-first
+  rollback-rate: ${ROLLBACK_RATE:0.001}     # kafka-first only: share of events rolled back after the ack
+kafka:
+  bootstrap: ${KAFKA_BOOTSTRAP:kafka-1:9092,kafka-2:9092,kafka-3:9092}
+source:
+  rate: ${RATE:1000}
+  workers: ${WORKERS:64}
+  merchants: ${MERCHANTS:1000}
+relay: ${RELAY:dual-write}
+run:
+  id: ${RUN_ID:adhoc}

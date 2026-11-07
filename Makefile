@@ -1,8 +1,8 @@
 SHELL := /bin/bash
-COMPOSE := docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.observability.yml -f deploy/docker-compose.connect.yml
+COMPOSE := docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.observability.yml -f deploy/docker-compose.connect.yml -f deploy/docker-compose.apps.yml
 MATRIX ?= full
 
-.PHONY: up down test it chaos chaos-v1 skew pills rebalance bench report clean
+.PHONY: up down test it images source dualwrite chaos chaos-v1 skew pills rebalance bench report clean
 
 up:
 	$(COMPOSE) up -d --build --wait
@@ -15,6 +15,17 @@ test:
 
 it:
 	mvn -B -ntp verify -Pit
+
+images:
+	mvn -B -ntp -DskipTests package jib:dockerBuild -pl source-app,dual-write-app -am
+
+# RATE=5000 OUTBOX_MODE=retain|delete RUN_ID=... make source
+source:
+	$(COMPOSE) --profile source up -d source-app
+
+# RATE=5000 DUALWRITE_MODE=db-first|kafka-first RUN_ID=... make dualwrite
+dualwrite:
+	$(COMPOSE) --profile dualwrite up -d dual-write-app
 
 chaos:
 	MATRIX=$(MATRIX) bash chaos/run-matrix.sh

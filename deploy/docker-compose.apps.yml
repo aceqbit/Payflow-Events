@@ -1,0 +1,38 @@
+# Writers. Opt-in via profiles so `make up` does not start them; use `make source` / `make dualwrite`.
+# Scripts set RUN_ID, SCENARIO, RELAY before starting (they become OTel resource attributes and Prometheus labels).
+x-app-env: &app-env
+  PG_HOST: postgres
+  OTEL_COLLECTOR: http://otel-collector:4318
+  RATE: ${RATE:-1000}
+  WORKERS: ${WORKERS:-64}
+  DB_POOL: ${DB_POOL:-32}
+  MERCHANTS: ${MERCHANTS:-1000}
+  RUN_ID: ${RUN_ID:-adhoc}
+  SCENARIO: ${SCENARIO:-none}
+
+services:
+  source-app:
+    image: ghcr.io/aceqbit/payflow-source-app:1.0.0
+    container_name: source-app
+    profiles: ["source"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      <<: *app-env
+      SERVICE_NAME: source-app
+      OUTBOX_MODE: ${OUTBOX_MODE:-retain}
+      RELAY: ${RELAY:-poller}
+  dual-write-app:
+    image: ghcr.io/aceqbit/payflow-dual-write-app:1.0.0
+    container_name: dual-write-app
+    profiles: ["dualwrite"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      topic-init: {condition: service_completed_successfully}
+    environment:
+      <<: *app-env
+      SERVICE_NAME: dual-write-app
+      KAFKA_BOOTSTRAP: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      DUALWRITE_MODE: ${DUALWRITE_MODE:-db-first}
+      ROLLBACK_RATE: ${ROLLBACK_RATE:-0.001}
+      RELAY: dual-write
